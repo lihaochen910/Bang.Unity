@@ -2,13 +2,18 @@ using System;
 using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.Linq;
+using System.Reflection;
+using System.Runtime.InteropServices;
 using Bang.Components;
 using Bang.Entities;
 using Bang.Interactions;
 using Bang.StateMachines;
 using Bang.Unity.Conversion;
+using Bang.Unity.Utilities;
+using GameCreator.Editor.Common;
 using UnityEditor;
 using UnityEngine;
+using CopyPasteUtils = Bang.Unity.Editor.Utilities.CopyPasteUtils;
 
 
 namespace Bang.Unity.Editor {
@@ -26,6 +31,8 @@ public static partial class EntityDrawer {
             EditorGUILayout.Space();
             return;
         }
+        
+        EditorGUILayout.PrefixLabel( $"EntityId: {entity.EntityId}" );
 
         EditorGUILayout.BeginHorizontal();
 
@@ -195,11 +202,13 @@ public static partial class EntityDrawer {
                             EditorGUILayout.EndHorizontal();
                         }
                         else {
-                            unfoldedComponents[ componentType ] = Foldout( unfoldedComponents[ componentType ], componentName, Styles.BooScriptIconTexture, FoldoutStyle );
-                            if ( unfoldedComponents[ componentType ] ) {
-                                componentMemberSearch[ componentType ] = memberInfos.Length > 5
-                                    ? SearchTextField( componentMemberSearch[ componentType ] )
-                                    : string.Empty;
+                            if ( unfoldedComponents.ContainsKey( componentType ) ) {
+                                unfoldedComponents[ componentType ] = Foldout( unfoldedComponents[ componentType ], componentName, Styles.BooScriptIconTexture, FoldoutStyle );
+                                if ( unfoldedComponents[ componentType ] ) {
+                                    componentMemberSearch[ componentType ] = memberInfos.Length > 5
+                                        ? SearchTextField( componentMemberSearch[ componentType ] )
+                                        : string.Empty;
+                                }
                             }
                         }
 
@@ -209,7 +218,8 @@ public static partial class EntityDrawer {
                     }
                     EditorGUILayout.EndHorizontal();
 
-                    if ( unfoldedComponents[ componentType ] ) {
+                    if ( unfoldedComponents.ContainsKey( componentType ) &&
+                         unfoldedComponents[ componentType ] ) {
                         // var newComponent = entity.CreateComponent(index, componentType);
                         // component.CopyPublicMemberValues(newComponent);
 
@@ -224,6 +234,10 @@ public static partial class EntityDrawer {
                         }
                         else {
                             foreach ( var info in memberInfos ) {
+                                if ( info.HasAttribute< HideInEditorAttribute >() ) {
+                                    continue;
+                                }
+                                
                                 if ( MatchesSearchString( info.Name.ToLower(), componentMemberSearch[ componentType ].ToLower() ) ) {
                                     var memberValue = info.GetValue( component );
                                     var memberType = memberValue == null ? info.Type : memberValue.GetType();
@@ -251,11 +265,24 @@ public static partial class EntityDrawer {
         }
     }
 
+    private static List< IComponent > _orderListCache = new ();
+    private static ImmutableArray< IComponent >.Builder _orderedComponentsCache = ImmutableArray.CreateBuilder< IComponent >();
     private static ImmutableArray< IComponent > OrderComponents( IList< IComponent > components ) {
-        var builder = ImmutableArray.CreateBuilder< IComponent >();
+        var builder = _orderedComponentsCache;
+        builder.Clear();
+
+        _orderListCache.Clear();
+        _orderListCache.AddRange( components.Where( c => c.IsFlagLikeComponent() ) );
+        _orderListCache.Sort( ( a, b ) => string.Compare( a.GetType().Name, b.GetType().Name ) );
+        _orderListCache.Reverse();
 
         // Order by alphabetical order.
         builder.AddRange( components.OrderBy( c => c.GetType().Name ) );
+        
+        foreach ( var flagLikeComponent in _orderListCache ) {
+            builder.Remove( flagLikeComponent );
+            builder.Insert( 0, flagLikeComponent );
+        }
 
         // Place "EntityName" as the first component.
         if ( builder.FirstOrDefault( c => c is GameObjectReferenceComponent ) is {} gameObjectRef ) {
@@ -270,29 +297,77 @@ public static partial class EntityDrawer {
         return builder.ToImmutable();
     }
 
+    private static readonly Func< Type, uint > SizeOfType = ( Func< Type, uint > )Delegate.CreateDelegate(
+        typeof( Func< Type, uint > ),
+        typeof( Marshal ).GetMethod( "SizeOfType", BindingFlags.NonPublic | BindingFlags.Static ) );
+
+    // private static Lazy< GenericMenu > _genericMenu = new ( () => new GenericMenu() );
+    private static Rect _genericMenuRect = default;
+
+    private static Lazy< GUIContent > _removeComponentGUIContent = new ( () => new GUIContent() { text = "Remove Component" } );
+    private static Lazy< GUIContent > _copyComponentGUIContent = new ( () => new GUIContent() { text = "Copy Component" } );
+    private static Lazy< GUIContent > _pasteComponentGUIContent = new ( () => new GUIContent() { text = "Paste Component" } );
+
     public static bool DrawComponents( List< IComponent > components ) {
         var anyComponentChanged = false;
         var unfoldedComponents = GetUnfoldedComponents();
         var componentMemberSearch = GetComponentMemberSearch();
 
+        int CaculateTotalSizeInBytes() {
+            var total = 0;
+            foreach ( var component in components ) {
+                total += ( int )SizeOfType( component.GetType() );
+            }
+            return total;
+        }
+
         EditorGUILayout.BeginVertical( GUI.skin.box, Array.Empty< GUILayoutOption >() );
         {
-            EditorGUILayout.BeginHorizontal();
+            // EditorGUI.BeginDisabledGroup( true );
+            // var entitySizeInKB = ( int )SizeOfType( typeof( Entity ) ) / 1000f;
+            // EditorGUILayout.LabelField( $"Entity ({entitySizeInKB:0.000} kb)", EditorStyles.boldLabel );
+            // EditorGUI.EndDisabledGroup();
+            
+            var componentsHeaderRect = EditorGUILayout.BeginHorizontal();
             {
-                EditorGUILayout.LabelField( $"Components ({components.Count})", EditorStyles.boldLabel );
+                var sizeInBytes = CaculateTotalSizeInBytes();
+                var sizeInKB = sizeInBytes / 1000f;
+                EditorGUILayout.LabelField( $"Components ({components.Count}) ({sizeInKB:0.000} kb)", EditorStyles.boldLabel );
                 if ( MiniButtonLeft( "▸" ) ) {
-                    foreach ( var keyValuePair in unfoldedComponents ) {
-                        unfoldedComponents[ keyValuePair.Key ] = false;
+                    foreach ( var key in unfoldedComponents.Keys.ToArray() ) {
+                        unfoldedComponents[ key ] = false;
                     }
                 }
 
                 if ( MiniButtonRight( "▾" ) ) {
-                    foreach ( var keyValuePair in unfoldedComponents ) {
-                        unfoldedComponents[ keyValuePair.Key ] = true;
+                    foreach ( var key in unfoldedComponents.Keys.ToArray() ) {
+                        unfoldedComponents[ key ] = true;
+                    }
+                }
+                componentsHeaderRect.height += GUILayoutUtility.GetLastRect().height;
+            }
+            EditorGUILayout.EndHorizontal();
+            
+            var e = Event.current;
+            if ( e.type == EventType.MouseDown && e.button == 1 ) {
+                if ( componentsHeaderRect.Contains( e.mousePosition ) ) {
+                    if ( CopyPasteUtils.SourceObject is IComponent ) {
+                        var menu = new GenericMenu();
+                                    
+                        _pasteComponentGUIContent.Value.text = $"Paste {CopyPasteUtils.SourceType.Name}";
+                        menu.AddItem( _pasteComponentGUIContent.Value, false, () => {
+                            anyComponentChanged |= DoPasteComponent( components );
+                        } );
+                        
+                        _genericMenuRect.x = e.mousePosition.x;
+                        _genericMenuRect.y = componentsHeaderRect.yMin;
+                        _genericMenuRect.width = 0f;
+                        _genericMenuRect.height = 0f;
+                        menu.DropDown( _genericMenuRect );
+                        e.Use();
                     }
                 }
             }
-            EditorGUILayout.EndHorizontal();
 
             EditorGUILayout.Space();
 
@@ -312,6 +387,26 @@ public static partial class EntityDrawer {
                 anyComponentChanged = true;
             }
 
+            if ( MiniButton( "Add Component(new)" ) ) {
+                TypeSelectorFancyPopup.Open( "Add Component", typeof( IComponent ), componentType => {
+                    var typeToAdd = componentType;
+                    if ( typeToAdd != null ) {
+                        if ( typeToAdd.IsSubclassOf( typeof( StateMachine ) ) ) {
+                            Type tStateMachine = typeof( StateMachineComponent<> );
+                            components.Add( Activator.CreateInstance( tStateMachine.MakeGenericType( typeToAdd ) ) as IComponent );
+                        }
+                        else if ( typeToAdd.GetInterfaces().Contains( typeof( IInteraction ) ) ) {
+                            Type tInteraction = typeof( InteractiveComponent<> );
+                            components.Add( Activator.CreateInstance( tInteraction.MakeGenericType( typeToAdd ) ) as IComponent );
+                        }
+                        else {
+                            components.Add( Activator.CreateInstance( typeToAdd ) as IComponent );
+                        }
+                        anyComponentChanged = true;
+                    }
+                } );
+            }
+
             EditorGUILayout.Space();
 
             ComponentNameSearchString = SearchTextField( ComponentNameSearchString );
@@ -322,6 +417,19 @@ public static partial class EntityDrawer {
             for ( var i = 0; i < orderedComponents.Length; i++ ) {
                 anyComponentChanged |= DrawComponent( unfoldedComponents, componentMemberSearch, components, orderedComponents[ i ] );
                 EditorGUILayout.Space();
+                EditorGUILayout.Space();
+                
+                const float padding = 2f;
+                const float thickness = 0.5f;
+                
+                Rect r = EditorGUILayout.GetControlRect( GUILayout.Height( padding + thickness ) );
+                r.height = thickness;
+                r.y += padding / 2;
+                r.x -= 2;
+                r.width += 6;
+                EditorGUI.DrawRect( r, Color.black );
+                
+                // EditorGUILayout.Space();
             }
         }
         EditorGUILayout.EndVertical();
@@ -354,24 +462,76 @@ public static partial class EntityDrawer {
                     var memberInfos = componentType.GetPublicMemberInfos();
                     EditorGUILayout.BeginHorizontal();
                     {
+                        Rect componentNameRect = default;
+                        
                         // flag component
-                        if ( memberInfos.Length == 0  && ( !isStateMachineComponent && !isInteractiveComponent ) ) {
-                            EditorGUILayout.BeginHorizontal();
+                        if ( memberInfos.Length == 0 && ( !isStateMachineComponent && !isInteractiveComponent ) ) {
+                            componentNameRect = EditorGUILayout.BeginHorizontal();
                             EditorGUILayout.LabelField( new GUIContent( EditorGUIUtility.IconContent( "sv_icon_dot3_sml" ).image ), EditorStyles.boldLabel, GUILayout.MaxWidth( 10f ) );
-                            EditorGUILayout.LabelField( componentName, EditorStyles.boldLabel );
+                            componentNameRect.height += GUILayoutUtility.GetLastRect().height;
+                            EditorGUILayout.LabelField( new GUIContent( componentName, componentType.FullName ), FoldoutNoFoldStyle );
+                            componentNameRect.height += GUILayoutUtility.GetLastRect().height;
                             EditorGUILayout.EndHorizontal();
                         }
                         else {
-                            EditorGUILayout.BeginHorizontal();
+                            componentNameRect = EditorGUILayout.BeginHorizontal();
                             {
                                 GUILayout.Space( 11 );
-                                unfoldedComponents[ componentType ] = EditorGUILayout.Foldout(unfoldedComponents[ componentType ], new GUIContent( componentName, Styles.BooScriptIconTexture, componentType.FullName ), FoldoutStyle);
+                                unfoldedComponents[ componentType ] = EditorGUILayout.Foldout(
+                                    unfoldedComponents[ componentType ],
+                                    new GUIContent( componentName, Styles.BooScriptIconTexture,
+                                        componentType.FullName ), toggleOnLabelClick: true, FoldoutStyle );
+                                componentNameRect.height += GUILayoutUtility.GetLastRect().height;
                             }
                             EditorGUILayout.EndHorizontal();
                             if ( unfoldedComponents[ componentType ] ) {
                                 componentMemberSearch[ componentType ] = memberInfos.Length > 5
                                     ? SearchTextField( componentMemberSearch[ componentType ] )
                                     : string.Empty;
+                            }
+                        }
+                        
+                        // Handle events
+                        var e = Event.current;
+                        if ( e.type == EventType.MouseDown && e.button == 1 ) {
+                            
+                            if ( componentNameRect.Contains( e.mousePosition ) ) {
+
+                                var menu = new GenericMenu();
+                                // _removeComponentGUIContent.Value.text = $"Remove {componentType.Name}";
+                                menu.AddItem( _removeComponentGUIContent.Value, false, () => {
+                                    components.Remove( component );
+                                    componentChanged = true;
+                                } );
+                                menu.AddSeparator( null );
+
+                                _copyComponentGUIContent.Value.text = $"Copy {componentName}";
+                                menu.AddItem( _copyComponentGUIContent.Value, false, () => {
+                                    CopyPasteUtils.SoftCopy( component, componentType );
+                                    // Debug.Log( $"SoftCopy: {componentType.Name}" );
+                                    // CopyPasteUtils.Duplicate( component );
+                                    // Debug.Log( CopyPasteUtils.SourceType.Name );
+                                    // Debug.Log( CopyPasteUtils.SourceObjectJson );
+                                } );
+
+                                if ( CopyPasteUtils.SourceObject is IComponent ) {
+                                    // _pasteComponentGUIContent.Value.text = "Paste Component";
+                                    // menu.AddDisabledItem( _pasteComponentGUIContent.Value );
+                                    
+                                    _pasteComponentGUIContent.Value.text = $"Paste {CopyPasteUtils.SourceType.Name}";
+                                    menu.AddItem( _pasteComponentGUIContent.Value, false, () => {
+                                        componentChanged = DoPasteComponent( components );
+                                    } );
+                                }
+
+                                // _genericMenuRect.x = componentNameRect.x;
+                                _genericMenuRect.x = e.mousePosition.x;
+                                // _genericMenuRect.y = componentNameRect.yMax;
+                                _genericMenuRect.y = componentNameRect.yMin;
+                                _genericMenuRect.width = 0f;
+                                _genericMenuRect.height = 0f;
+                                menu.DropDown( _genericMenuRect );
+                                e.Use();
                             }
                         }
 
@@ -386,6 +546,17 @@ public static partial class EntityDrawer {
                         EditorGUI.indentLevel++;
                         // var newComponent = entity.CreateComponent(index, componentType);
                         // component.CopyPublicMemberValues(newComponent);
+                        
+                        EditorGUI.BeginDisabledGroup( true );
+                        var sizeInBytes = SizeOfType( componentType );
+                        if ( sizeInBytes < 100 ) {
+                            EditorGUILayout.LabelField( $"{SizeOfType( componentType )} bytes " );
+                        }
+                        else {
+                            var sizeInKB = sizeInBytes / 1000f;
+                            EditorGUILayout.LabelField( $"{sizeInKB:0.000} kb" );
+                        }
+                        EditorGUI.EndDisabledGroup();
 
                         var changed = false;
                         var componentDrawer = GetComponentDrawer( componentType );
@@ -398,6 +569,10 @@ public static partial class EntityDrawer {
                         }
                         else {
                             foreach ( var info in memberInfos ) {
+                                if ( info.HasAttribute< HideInEditorAttribute >() ) {
+                                    continue;
+                                }
+                                
                                 if ( MatchesSearchString( info.Name.ToLower(), componentMemberSearch[ componentType ].ToLower() ) ) {
                                     var memberValue = info.GetValue( component );
                                     var memberType = ( memberValue == null || Nullable.GetUnderlyingType( info.Type ) != null ) ? info.Type : memberValue.GetType();
@@ -427,8 +602,34 @@ public static partial class EntityDrawer {
         return componentChanged;
     }
 
+    private static bool DoPasteComponent( List< IComponent > components ) {
+        var changed = false;
+        var clonedComponent = CopyPasteUtils.SourceObjectCopy as IComponent;
+        // Debug.Log( $"clonedComponent = {clonedComponent} {clonedComponent is IComponent}" );
+        if ( clonedComponent is IComponent ) {
+            var sameTypeToRemove = -1;
+            foreach ( var comp in components ) {
+                if ( comp.GetType() == CopyPasteUtils.SourceType ) {
+                    sameTypeToRemove = components.IndexOf( comp );
+                    break;
+                }
+            }
+            if ( sameTypeToRemove >= 0 ) {
+                components.RemoveAt( sameTypeToRemove );
+                changed = true;
+                // Debug.Log( $"remove same: {CopyPasteUtils.SourceType.Name}" );
+            }
+            components.Add( clonedComponent );
+            changed = true;
+                                            
+            // Debug.Log( $"cloned: {clonedComponent}" );
+        }
+
+        return changed;
+    }
+    
     public static bool DrawObjectMember( Type memberType, string memberName, object value, object target, Action< object, object > setValue ) {
-        if ( value == null ) {
+        if ( value == null && memberType != typeof( System.Type ) ) {
             EditorGUI.BeginChangeCheck();
             {
                 var isUnityObject = memberType == typeof( UnityEngine.Object ) ||
@@ -440,9 +641,30 @@ public static partial class EntityDrawer {
                     else
                         EditorGUILayout.LabelField( memberName, "null" );
 
-                    if ( MiniButton( $"new {memberType.ToCompilableString().TypeName()}" ) ) {
-                        if ( CreateDefault( memberType, out var defaultValue ) ) {
-                            setValue( target, defaultValue );
+                    // 非抽象/接口类实例创建
+                    if ( !memberType.IsAbstract && !memberType.IsInterface ) {
+                        if ( MiniButton( $"new {memberType.ToCompilableString().TypeName()}" ) ) {
+                            if ( CreateDefault( memberType, out var defaultValue ) ) {
+                                setValue( target, defaultValue );
+                            }
+                        }
+                    }
+                    else {
+                        using ( var check = new EditorGUI.ChangeCheckScope() ) {
+				
+                            var systemTypes = SystemTypeDrawer.GetAllImplementationsOfCached( memberType );
+                            var systemNames = systemTypes
+                                              .Select( t => t.FullName.Replace( '.', '/' ) )
+                                              .ToArray();
+
+                            var selectTypeIndex = -1;
+                            selectTypeIndex = EditorGUILayout.Popup( selectTypeIndex, systemNames, EditorStyles.popup );
+                            if ( check.changed ) {
+                                if ( CreateDefault( systemTypes[ selectTypeIndex ], out var defaultValue ) ) {
+                                    setValue( target, defaultValue );
+                                }
+                            }
+				
                         }
                     }
                 }
@@ -489,7 +711,7 @@ public static partial class EntityDrawer {
                     EditorGUI.indentLevel = indent;
                 }
                 else {
-                    DrawUnsupportedType( memberType, memberName, value );
+                    DrawUnsupportedType( memberType, memberName, value, target );
                 }
             }
 
@@ -513,6 +735,11 @@ public static partial class EntityDrawer {
                 defaultValue = creator.CreateDefault( type );
                 return true;
             }
+        }
+
+        if ( type == typeof( UnityEngine.Object ) || type.IsSubclassOf( typeof( UnityEngine.Object ) ) ) {
+            defaultValue = null;
+            return true;
         }
         
         try {
@@ -542,7 +769,13 @@ public static partial class EntityDrawer {
                              .Where( kv => !entity.HasComponent( kv.Value.Index ) && !kv.Value.Type.IsInterface && !kv.Value.Type.IsGenericType )
                              .ToArray();
         var componentNames = componentInfos
-                             .Select( kv => kv.Value.Name )
+                             .Select( kv => {
+                                 if ( kv.Key.RTGetAttribute< CreateComponentMenuAttribute >( false ) is {} createComponentMenuAttribute ) {
+                                     return createComponentMenuAttribute.MenuName;
+                                 }
+                                 
+                                 return kv.Key.FullName.Replace( '.', '/' );
+                             } )
                              .ToArray();
         var index = EditorGUILayout.Popup( "Add Component", -1, componentNames );
         return index >= 0
@@ -569,33 +802,69 @@ public static partial class EntityDrawer {
                              } )
                              .ToArray();
         var componentNames = componentInfos
-                             .Select( kv => kv.Value.Name )
+                             .Select( kv => {
+                                 if ( kv.Key.RTGetAttribute< CreateComponentMenuAttribute >( false ) is {} createComponentMenuAttribute ) {
+                                     return createComponentMenuAttribute.MenuName;
+                                 }
+                                 
+                                 return kv.Key.FullName.Replace( '.', '/' );
+                             } )
                              .ToArray();
+        var guiContentColor = GUI.contentColor;
+        GUI.contentColor = Color.cyan;
         var index = EditorGUILayout.Popup( "Add Component", -1, componentNames );
+        GUI.contentColor = guiContentColor;
         return index >= 0
             ? componentInfos[ index ].Value.Type
             : null;
     }
 
-    static void DrawUnsupportedType( Type memberType, string memberName, object value ) {
-        EditorGUILayout.BeginHorizontal();
-        {
-            EditorGUILayout.LabelField( memberName, value.ToString() );
-            if ( MiniButton( "Missing ITypeDrawer" ) ) {
-                var typeName = memberType.ToCompilableString();
-                if ( EditorUtility.DisplayDialog(
-                        "No ITypeDrawer found",
-                        "There's no ITypeDrawer implementation to handle the type '" + typeName + "'.\n" +
-                        "Providing an ITypeDrawer enables you draw instances for that type.\n\n" +
-                        "Do you want to generate an ITypeDrawer implementation for '" + typeName + "'?\n",
-                        "Generate",
-                        "Cancel"
-                    ) ) {
-                    // GenerateITypeDrawer(typeName);
-                }
-            }
+    private static readonly SystemObjectDrawer DefaultObjectDrawer = new ();
+    private static readonly Dictionary< int, bool > DefaultObjectDrawerLevelFoldState = new ( 0xf );
+
+    static void DrawUnsupportedType( Type memberType, string memberName, object value, object target ) {
+        if ( !DefaultObjectDrawerLevelFoldState.ContainsKey( EditorGUI.indentLevel ) ) {
+            DefaultObjectDrawerLevelFoldState.Add( EditorGUI.indentLevel, false );
         }
-        EditorGUILayout.EndHorizontal();
+        
+        // EditorGUILayout.LabelField( memberName, $"{memberName} (instance of {value.GetType().Name})" );
+        DefaultObjectDrawerLevelFoldState[ EditorGUI.indentLevel ] =
+            // Foldout( DefaultObjectDrawerLevelFoldState[ EditorGUI.indentLevel ], $"{memberName} (instance of {value.GetType().Name})" );
+            Foldout( DefaultObjectDrawerLevelFoldState[ EditorGUI.indentLevel ], $"{memberName} ({value.GetType().Name})" );
+
+        if ( DefaultObjectDrawerLevelFoldState[ EditorGUI.indentLevel ] ) {
+            EditorGUI.indentLevel++;
+            DefaultObjectDrawer.DrawAndGetNewValue( memberType, memberName, value, target );
+            EditorGUI.indentLevel--;
+        }
+        
+        // if ( EditorGUI.indentLevel < 0xf ) {
+        //     DefaultObjectDrawer.DrawAndGetNewValue( memberType, memberName, value, target );
+        // }
+        // else {
+        //     EditorGUI.indentLevel++;
+        //     EditorGUILayout.SelectableLabel( "too deep to show." );
+        //     EditorGUI.indentLevel--;
+        // }
+        
+        // EditorGUILayout.BeginHorizontal();
+        // {
+        //     EditorGUILayout.LabelField( memberName, value.ToString() );
+        //     if ( MiniButton( "Missing ITypeDrawer" ) ) {
+        //         var typeName = memberType.ToCompilableString();
+        //         if ( EditorUtility.DisplayDialog(
+        //                 "No ITypeDrawer found",
+        //                 "There's no ITypeDrawer implementation to handle the type '" + typeName + "'.\n" +
+        //                 "Providing an ITypeDrawer enables you draw instances for that type.\n\n" +
+        //                 "Do you want to generate an ITypeDrawer implementation for '" + typeName + "'?\n",
+        //                 "Generate",
+        //                 "Cancel"
+        //             ) ) {
+        //             // GenerateITypeDrawer(typeName);
+        //         }
+        //     }
+        // }
+        // EditorGUILayout.EndHorizontal();
     }
 
     private static readonly Dictionary<string, string> BuiltInTypesToString = new () {
@@ -660,7 +929,7 @@ public static partial class EntityDrawer {
         return fullTypeName.Substring(num, fullTypeName.Length - num);
     }
     
-    private static string RemoveSuffix(this string str, string suffix)
+    internal static string RemoveSuffix(this string str, string suffix)
     {
         return str.EndsWith(suffix, StringComparison.Ordinal)
             ? str.Substring(0, str.Length - suffix.Length)

@@ -16,6 +16,7 @@ namespace Bang.Unity.Graphics {
 		public void Start( Context context ) {
 			_drawAgent = new GameObject( nameof( UnityOnGuiRenderSystem ), typeof( BangGlobalMonoBehaviourOnGuiDrawAgent ) );
 			_drawAgent.GetComponent< BangGlobalMonoBehaviourOnGuiDrawAgent >().SetWorld( context.World as UnityWorld );
+			Object.DontDestroyOnLoad( _drawAgent );
 		}
 		
 		public void Exit( Context context ) {

@@ -27,7 +27,16 @@ namespace Bang.Unity.Serialization.Converters {
 			var routine = instance.GetType().GetField( "_routine", BindingFlags.NonPublic | BindingFlags.Instance )
 					.GetValue( instance );
 
-            fsMetaType metaType = fsMetaType.Get(routine.GetType());
+			fsMetaType metaType;
+			if ( routine is not null ) {
+				metaType = fsMetaType.Get(routine.GetType());
+			}
+			else {
+				Type[] genericArguments = instance.GetType().GetGenericArguments();
+            
+				// 获取第一个泛型参数类型
+				metaType = fsMetaType.Get(genericArguments[0]);
+			}
 
             //Dont do this for UnityObject. While there is fsUnityObjectConverter, this converter is also used as override,
             //when serializing a UnityObject directly.
@@ -84,8 +93,11 @@ namespace Bang.Unity.Serialization.Converters {
 				return fsResult.Success;
 			}
 			
-			var routine = instance.GetType().GetField( "_routine", BindingFlags.NonPublic | BindingFlags.Instance )
-								  .GetValue( instance );
+			var routineField = instance.GetType().GetField( "_routine", BindingFlags.NonPublic | BindingFlags.Instance );
+			var routine = routineField.GetValue(instance);
+			if ( routine is null ) {
+				routineField.SetValue( instance, Activator.CreateInstance( routineField.FieldType ) );
+			}
 
 			fsMetaType metaType = fsMetaType.Get(storageType.GetGenericArguments()[ 0 ]);
 

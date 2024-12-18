@@ -2,9 +2,13 @@
     "name": "Bang.Unity",
     "rootNamespace": "",
     "references": [
+        "GUID:8a0ac5a9bde7d4a2db6a681ed88a8635",
         "GUID:e0cd26848372d4e5c891c569017e11f1",
         "GUID:9edf6d04eabfd482385646eaba23fdfc",
-        "GUID:9ec603979022f430b95a82d68e3a55c5"
+        "GUID:9ec603979022f430b95a82d68e3a55c5",
+        "GUID:de4e6084e6d474788bb8c799d6b461ec",
+        "GUID:9a87097604f806340b969a2d9261a322",
+        "GUID:b46779583a009f04ba9f5f31d0e7e6ac"
     ],
     "includePlatforms": [],
     "excludePlatforms": [],

@@ -24,8 +24,10 @@ public class PublicMemberInfo
 	public readonly string Name;
 	public readonly AttributeInfo[] Attributes;
 
-	readonly FieldInfo _fieldInfo;
-	readonly PropertyInfo _propertyInfo;
+	public MemberInfo MemberInfo => _fieldInfo != null ? _fieldInfo : _propertyInfo;
+
+	private readonly FieldInfo _fieldInfo;
+	private readonly PropertyInfo _propertyInfo;
 
 	public PublicMemberInfo(FieldInfo info)
 	{
@@ -53,6 +55,16 @@ public class PublicMemberInfo
 			_fieldInfo.SetValue(obj, value);
 		else
 			_propertyInfo.SetValue(obj, value);
+	}
+
+	public bool HasAttribute< T >() where T : Attribute {
+		foreach ( var attributeInfo in Attributes ) {
+			if ( attributeInfo.Attribute.GetType() == typeof( T ) ) {
+				return true;
+			}
+		}
+
+		return false;
 	}
 
 	static AttributeInfo[] GetAttributes(IEnumerable<object> attributes) => attributes

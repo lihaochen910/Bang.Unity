@@ -49,6 +49,41 @@ namespace Bang.Unity.Utilities {
 	    
 	    
 		public static Entity ShallowClone( this Entity entity, Context context ) => ShallowClone( entity, context.World );
+
+		
+		/// <summary>
+		/// Get Position in world position(safely).
+		/// </summary>
+		public static Vector3? TryGetPosition( this Entity entity ) {
+			if ( entity.TryGetGameObjectReference() is {} gameObjectReference ) {
+				return gameObjectReference.GameObject?.transform.position;
+			}
+
+			return null;
+		}
+
+
+		/// <summary>
+		/// Get Position in world position(unsafe).
+		/// </summary>
+		public static Vector3 GetPosition( this Entity entity ) {
+			return entity.GetGameObjectReference().GameObject.transform.position;
+		}
+
+
+		public static void SetPosition( this Entity entity, in Vector3 position ) {
+			entity.GetGameObjectReference().GameObject.transform.position = position;
+		}
+
+
+		public static Camera? TryGetCamera( this Entity entity ) {
+			return entity.GetGameObjectReference().GameObject.GetComponent< Camera >();
+		}
+
+		
+		public static Camera GetCamera( this Entity entity ) {
+			return entity.GetGameObjectReference().GameObject.GetComponent< Camera >();
+		}
 		
 	}
 	

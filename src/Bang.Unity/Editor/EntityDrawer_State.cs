@@ -22,6 +22,25 @@ public static partial class EntityDrawer {
         public Type Type;
     }
     
+    private static GUIStyle _foldoutNoFoldStyle;
+    public static GUIStyle FoldoutNoFoldStyle
+    {
+        get
+        {
+            if ( _foldoutNoFoldStyle == null ) {
+                _foldoutNoFoldStyle = new GUIStyle( EditorStyles.boldLabel );
+                _foldoutNoFoldStyle.fontSize = 15;
+                _foldoutNoFoldStyle.fontStyle = FontStyle.Bold;
+                _foldoutNoFoldStyle.imagePosition = ImagePosition.ImageLeft;
+                // _foldoutStyle.normal = new GUIStyleState { textColor = Color.cyan };
+                // _foldoutStyle.hover = new GUIStyleState { textColor = Color.yellow };
+                // _foldoutStyle.focused = new GUIStyleState { textColor = Color.green };
+            }
+
+            return _foldoutNoFoldStyle;
+        }
+    }
+    
     private static GUIStyle _foldoutStyle;
     public static GUIStyle FoldoutStyle
     {
@@ -29,7 +48,9 @@ public static partial class EntityDrawer {
         {
             if ( _foldoutStyle == null ) {
                 _foldoutStyle = new GUIStyle( EditorStyles.foldout );
+                _foldoutStyle.fontSize = 15;
                 _foldoutStyle.fontStyle = FontStyle.Bold;
+                _foldoutStyle.imagePosition = ImagePosition.ImageLeft;
                 // _foldoutStyle.normal = new GUIStyleState { textColor = Color.cyan };
                 // _foldoutStyle.hover = new GUIStyleState { textColor = Color.yellow };
                 // _foldoutStyle.focused = new GUIStyleState { textColor = Color.green };
@@ -52,7 +73,8 @@ public static partial class EntityDrawer {
         return ReflectionHelper.GetAllImplementationsOf<IComponent>()
                                .Where(t => !Attribute.IsDefined(t, typeof(HideInEditorAttribute))
                                            && !typeof(IMessage).IsAssignableFrom(t)
-                                           && !Attribute.IsDefined(t, typeof(RuntimeOnlyAttribute)))
+                                           // && !Attribute.IsDefined(t, typeof(RuntimeOnlyAttribute))
+                               )
                                .ToImmutableArray();
     });
 
@@ -217,7 +239,7 @@ public static partial class EntityDrawer {
         return _componentMemberSearch.Value;
     }
 
-    static Dictionary< Type, ComponentInfo > GetComponentInfos()
+    internal static Dictionary< Type, ComponentInfo > GetComponentInfos()
     {
         // if (!ContextToComponentInfos.TryGetValue(DefaultContext, out var infos)) {
         //     var allComponents = entity.World.ComponentsLookup.GetAllComponentIndexUnderInterface( typeof( IComponent ) );

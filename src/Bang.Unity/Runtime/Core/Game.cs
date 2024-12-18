@@ -2,6 +2,7 @@ using System;
 using System.Collections.Immutable;
 using System.Threading.Tasks;
 using Gilzoide.EasyProjectSettings;
+using Unity.Profiling;
 using UnityEngine;
 
 
@@ -101,6 +102,9 @@ public static class Game {
 	/* *** Public instance fields *** */
 
 	public static Scene? ActiveScene => _sceneLoader?.ActiveScene;
+
+
+	public static World? GWorld => ActiveScene?.World;
 	
 	
 	private const float LONGEST_TIME_RESET = 5f;
@@ -166,6 +170,15 @@ public static class Game {
 	private static double _previousFrameTime = 0;
 
 	#endregion
+
+
+	#region Diagnostics
+
+	// private static readonly ProfilerMarker k_GameUpdateMarker = new ProfilerMarker( "Game Update" );
+	// private static readonly ProfilerMarker k_GameLateUpdateMarker = new ProfilerMarker( "Game LateUpdate" );
+	// private static readonly ProfilerMarker k_GameFixedUpdateMarker = new ProfilerMarker( "Game FixedUpdate" );
+
+	#endregion
 	
 	
 	/// <summary>
@@ -189,6 +202,32 @@ public static class Game {
 	}
 
 
+#if UNITY_EDITOR
+	internal static void InitializeEditor() {
+		// Propagate dianostics mode settings.
+		World.DIAGNOSTICS_MODE = DIAGNOSTICS_MODE;
+		
+		// Initialize the initial scene.
+		_sceneLoader = new SceneLoader( new EditorScene(), IsDiagnosticEnabled );
+
+		_ = LoadSceneAsync( true );
+		
+		UnityEditor.EditorApplication.update -= OnUpdateEditor;
+		UnityEditor.EditorApplication.update += OnUpdateEditor;
+	}
+
+	private const float FixeDeltaEditorMode = 1f / 60f;
+	private static void OnUpdateEditor() {
+		if ( Application.isPlaying ) {
+			return;
+		}
+		FixedUpdate( TimeSpan.FromSeconds( FixeDeltaEditorMode ) );
+		Update( TimeSpan.FromSeconds( FixeDeltaEditorMode ) );
+		LateUpdate();
+	}
+#endif
+
+
 	/// <summary>
 	/// Refreshes the game window settings based on the current profile.
 	/// </summary>
@@ -198,6 +237,10 @@ public static class Game {
 	public static void RefreshWindow() {
 		if ( ProjectSettings.TryLoad< BangAppSettings >( out var bangAppSettings ) ) {
 			SetTargetFps( bangAppSettings.TargetFps, bangAppSettings.FixedUpdateFactor );
+
+			if ( bangAppSettings.IsVSyncEnabled ) {
+				QualitySettings.vSyncCount = 1; // 60
+			}
 		}
 		else {
 			SetTargetFps( 60, 2.0f );
@@ -221,10 +264,25 @@ public static class Game {
 			if ( bangAppSettings.MainFeatures != null ) {
 				systemsToStart = bangAppSettings.FetchAllSystems();
 			}
+			// else {
+			// 	Debug.LogWarning( "[Game] BangAppSettings::MainFeatures is null, why this?" );
+			// }
+		}
+		else {
+			Debug.LogError( "[Game] cannot load BangAppSettings!" );
 		}
 		
 		// Window setup goes here
 		RefreshWindow();
+		
+		if ( systemsToStart.IsDefaultOrEmpty ) {
+			Debug.LogWarning( "[Game] No any system found To Start! go check ProjectSettings!" );
+		}
+#if !UNITY_EDITOR
+		else {
+			Debug.Log( $"[Game] GWorld MainFeatures checked, {systemsToStart.Length} systems to start." );
+		}
+#endif
 		
 		// Initialize the initial scene.
 		_sceneLoader = new SceneLoader( new GameScene( systemsToStart ), IsDiagnosticEnabled );
@@ -234,12 +292,25 @@ public static class Game {
 		if ( _sceneLoader.ActiveScene != null ) {
 			_isPlayingGame = true;
 		}
+#if !UNITY_EDITOR
+		else {
+			Debug.LogError( $"[Game] Game::_sceneLoader.ActiveScene is null." );
+		}
+		
+		Debug.Log( $"[Game] ActiveScene: {_sceneLoader.ActiveScene}" );
+		Debug.Log( $"[Game] GWorld: {_sceneLoader.ActiveScene.World}" );
+#endif
+		
 	}
 
 	private static bool _isForeground;
 	public static bool IsForeground => _isForeground;
 	
 	public static void Update( TimeSpan gameTime ) {
+		
+// #if DEBUG
+// 		k_GameUpdateMarker.Begin();
+// #endif
 
 		if ( _waitForSaveComplete && !CanResumeAfterSaveComplete() ) {
 			UpdateUnscaledDeltaTime( gameTime.TotalSeconds );
@@ -290,6 +361,10 @@ public static class Game {
 		// }
 
 		_frame++;
+
+// #if DEBUG
+// 		k_GameUpdateMarker.End();
+// #endif
 	}
 
 
@@ -418,6 +493,7 @@ public static class Game {
 
 	public static void FixedUpdate( TimeSpan gameTime ) {
 #if DEBUG
+		// k_GameFixedUpdateMarker.Begin();
 		// Logger.Verify( ActiveScene is not null );
 #endif
 		
@@ -425,6 +501,7 @@ public static class Game {
 		
 #if DEBUG
 		ActiveScene?.FixedUpdate();
+		// k_GameFixedUpdateMarker.End();
 #else
 		ActiveScene.FixedUpdate();
 #endif
@@ -433,10 +510,12 @@ public static class Game {
 	
 	public static void LateUpdate() {
 #if DEBUG
+		// k_GameLateUpdateMarker.Begin();
 		// Logger.Verify( ActiveScene is not null );
 #endif
 #if DEBUG
 		ActiveScene?.LateUpdate();
+		// k_GameLateUpdateMarker.End();
 #else
 		ActiveScene.LateUpdate();
 #endif
@@ -496,6 +575,7 @@ public static class Game {
 	}
 
 	private static void SetTargetFps( int fps, float fixedUpdateFactor ) {
+		Application.targetFrameRate = fps;
 		_fixedUpdateDelta = 1f / ( fps / fixedUpdateFactor );
 	}
 	
@@ -538,20 +618,20 @@ public static class Game {
 
 	#region Scenes
 
-	private static Guid? _pendingWorldTransition = default;
+	private static Scene? _pendingSceneTransition = default;
 
     private static UnityWorld? _pendingWorld = default;
     private static bool _disposePendingWorld = true;
 
     private static bool _pendingExit = false;
 
-	public static bool QueueWorldTransition( Guid world ) {
-		if ( _pendingWorldTransition.HasValue ) {
-			// Logger.Verify( _pendingWorldTransition.Value == world, "Queue another world transition mid-update?" );
+	public static bool QueueSceneTransition( Scene scene ) {
+		if ( _pendingSceneTransition is not null ) {
+			Debug.Assert( _pendingSceneTransition == scene, "Queue another world transition mid-update?" );
 			return false;
 		}
 
-		_pendingWorldTransition = world;
+		_pendingSceneTransition = scene;
 		return true;
 	}
 
@@ -560,8 +640,8 @@ public static class Game {
 	/// Happened when transition from two different scenes (already loaded) as a world.
 	/// </summary>
 	public static bool QueueReplaceWorldOnCurrentScene( UnityWorld world, bool disposeWorld ) {
-		if ( _pendingWorldTransition.HasValue ) {
-			// Logger.Error( "Queue another world transition mid-update?" );
+		if ( _pendingSceneTransition is not null ) {
+			Debug.LogError( "Queue another world transition mid-update?" );
 			return false;
 		}
 
@@ -569,6 +649,16 @@ public static class Game {
 		_disposePendingWorld = disposeWorld;
 
 		return true;
+	}
+
+	public static void SwitchSceneNow( Scene scene ) {
+		// Unpause on each world transition.
+		Resume();
+
+		_sceneLoader.SwitchScene( scene );
+		_pendingSceneTransition = null;
+		
+		LoadSceneAsync( waitForAllContent: true ).Wait();
 	}
 
 	private static void DoPendingWorldTransition() {
@@ -581,7 +671,7 @@ public static class Game {
 			return;
 		}
 
-		if ( !_pendingWorldTransition.HasValue ) {
+		if ( _pendingSceneTransition is null ) {
 			return;
 		}
 
@@ -595,10 +685,9 @@ public static class Game {
 		// Unpause on each world transition.
 		Resume();
 
-		_sceneLoader.SwitchScene( _pendingWorldTransition.Value );
-		_pendingWorldTransition = default;
-
-		// TODO: Fancier loading bar.
+		_sceneLoader.SwitchScene( _pendingSceneTransition );
+		_pendingSceneTransition = null;
+		
 		LoadSceneAsync( waitForAllContent: true ).Wait();
 	}
 
@@ -610,7 +699,7 @@ public static class Game {
 		_pendingExit = true;
 	}
 
-	public static void DoPendingExitGame() {
+	private static void DoPendingExitGame() {
 		if ( !_pendingExit ) {
 			return;
 		}
@@ -750,6 +839,12 @@ public static class Game {
 
 		// _sceneLoader.SwitchScene( EditorSettings.QuickStartScene );
 		return true;
+	}
+
+	private static EditorScene _editorScene;
+	public static void SwitchToEditorScene() {
+		_editorScene = new EditorScene();
+		SwitchSceneNow( _editorScene );
 	}
 
 	#endregion

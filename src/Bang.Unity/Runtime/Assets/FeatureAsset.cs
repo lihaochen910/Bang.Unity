@@ -57,60 +57,80 @@ namespace Bang.Unity {
         [SerializeField]
         public List<FeatureBooleanTuple> Features = new ();
 
-        public bool HasSystems
-        {
-            get
-            {
-                if (Systems.Count > 0)
+
+        public bool HasSystems {
+            get {
+                if ( Systems.Count > 0 ) {
                     return true;
+                }
 
-                foreach (var feature in Features)
-                {
-                    if (!feature.Item2)
+                foreach ( var feature in Features ) {
+                    if ( !feature.Item2 ) {
                         continue;
+                    }
 
-                    if (feature.Item1.HasSystems)
+                    if ( feature.Item1.HasSystems ) {
                         return true;
+                    }
                 }
 
                 return false;
             }
         }
 
-        public void SetSystems(IList<TypeBooleanTuple> newList)
-        {
-            Systems = newList.ToList();
-        }
 
-        public void SetFeatures(IList<FeatureBooleanTuple> newSystemsList)
-        {
-            Features = newSystemsList.ToList();
-        }
+        public void SetSystems(IList<TypeBooleanTuple> newList) => Systems = newList.ToList();
 
-        public ImmutableArray<(Type systemType, bool isActive)> FetchAllSystems(bool enabled)
-        {
-            var builder = ImmutableArray.CreateBuilder<(Type systemType, bool isActive)>();
-        
-            foreach (var system in Systems)
-            {
-                builder.Add((system.Item1, system.Item2 && enabled));
-            }
-        
-            foreach (var data in Features)
-            {
+        public void SetFeatures(IList<FeatureBooleanTuple> newSystemsList) => Features = newSystemsList.ToList();
+
+        public ImmutableArray< (Type systemType, bool isActive) > FetchAllSystems( bool enabled ) {
+            var builder = ImmutableArray.CreateBuilder< (Type systemType, bool isActive) >();
+
+            foreach ( var data in Features ) {
                 FeatureAsset? asset = data.Item1;
-                if (asset is null)
-                {
+                if ( asset is null ) {
                     // Debug.LogWarning($"Skipping feature asset of {guid.feature} for {this}.");
                     continue;
                 }
-        
-                builder.AddRange(asset.FetchAllSystems(data.Item2 && enabled));
+
+                builder.AddRange( asset.FetchAllSystems( data.Item2 && enabled ) );
             }
-        
+            
+            foreach ( var system in Systems ) {
+                
+                if ( system.Item1.SystemType is null ) {
+                    Debug.LogError( $"missing system: {system.Item1.AssemblyQualifiedName}, has it been renamed?" );
+                    continue;
+                }
+                
+                builder.Add( ( system.Item1, system.Item2 && enabled ) );
+            }
+
             return builder.ToImmutable();
         }
-	    
+
+        public bool ContainsSystem( Type systemType, bool containsFeatures = true ) {
+            foreach ( var typeBooleanTuple in Systems ) {
+                if ( typeBooleanTuple.Item1.SystemType == systemType ) {
+                    return true;
+                }
+            }
+
+            if ( containsFeatures ) {
+                foreach ( var featureBooleanTuple in Features ) {
+                    if ( featureBooleanTuple.Item1 is null ) {
+                        continue;
+                    }
+                    
+                    if ( featureBooleanTuple.Item1.ContainsSystem( systemType ) ) {
+                        return true;
+                    }
+                }
+            }
+
+            return false;
+        }
+
     }
 
 }

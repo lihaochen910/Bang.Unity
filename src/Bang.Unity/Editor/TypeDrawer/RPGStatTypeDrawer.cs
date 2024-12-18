@@ -1,5 +1,8 @@
 using System;
+using System.Linq;
+using Bang.Unity.Utilities;
 using DigitalRune.Mathematics;
+using DigitalRune.Linq;
 using Pixpil.RPGStatSystem;
 using UnityEditor;
 using UnityEngine;
@@ -179,6 +182,64 @@ namespace Bang.Unity.Editor {
 			EditorGUI.EndDisabledGroup();
 
 			return rpgStat;
+		}
+	}
+
+
+	public class RPGStatModifierTypeDrawer : ITypeDrawer {
+
+		private static Lazy< Type[] > Impls = new ( () =>
+			ReflectionHelper.GetAllImplementationsOf( typeof( RPGStatModifier ) ).ToArray() );
+
+		private float _testStatValue;
+		
+		public bool CanHandlesType( Type type ) => type == typeof( RPGStatModifier ) || type.IsSubclassOf( typeof( RPGStatModifier ) );
+
+		public object DrawAndGetNewValue( Type memberType, string memberName, object value, object target ) {
+			var statModifier = ( RPGStatModifier )value;
+			
+			EditorGUI.BeginDisabledGroup( true );
+			
+			EditorGUILayout.LabelField( $"{statModifier.GetType().Name}" );
+			
+			EditorGUI.EndDisabledGroup();
+			
+			var selectedIndex = Impls.Value.IndexOf( t => t == value.GetType() );
+			var typeNames = Impls.Value
+								 .Select( t => $"{t.Name} ({t.Namespace})" )
+								 .ToArray();
+			var index = EditorGUILayout.Popup( "ModifierType", selectedIndex, typeNames );
+			if ( index >= 0 && Impls.Value[ index ] != statModifier.GetType() ) {
+				var newStatModifier = Activator.CreateInstance( Impls.Value[ index ], 0f ) as RPGStatModifier;
+				statModifier = newStatModifier;
+			}
+			
+			var newStacksValue = EditorGUILayout.Toggle( "stacks", statModifier.Stacks );
+			if ( newStacksValue != statModifier.Stacks ) {
+				statModifier.Stacks = newStacksValue;
+			}
+			
+			var newStatBaseValue = EditorGUILayout.FloatField( "value", statModifier.Value );
+			if ( !Numeric.AreEqual( newStatBaseValue, statModifier.Value ) ) {
+				statModifier.Value = newStatBaseValue;
+			}
+			
+			EditorGUI.BeginDisabledGroup( true );
+			
+			EditorGUILayout.LabelField( $"order: {statModifier.Order}" );
+			
+			EditorGUI.EndDisabledGroup();
+
+			EditorGUILayout.BeginVertical();
+			
+			_testStatValue = EditorGUILayout.FloatField( "test", _testStatValue );
+			EditorGUI.indentLevel++;
+			EditorGUILayout.LabelField( $"result: {statModifier.ApplyModifier( _testStatValue, statModifier.Value ):0.00}" );
+			EditorGUI.indentLevel--;
+			
+			EditorGUILayout.EndVertical();
+			
+			return statModifier;
 		}
 	}
 

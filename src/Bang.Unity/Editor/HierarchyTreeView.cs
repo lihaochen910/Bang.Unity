@@ -148,7 +148,12 @@ public sealed class HierarchyTreeView : TreeView, IDisposable {
 
     public void Dispose() {
         if ( currentSelection != null ) {
-            UnityEngine.Object.Destroy( currentSelection );
+            if ( Application.isPlaying ) {
+                UnityEngine.Object.Destroy( currentSelection );
+            }
+            else {
+                UnityEngine.Object.DestroyImmediate( currentSelection );
+            }
         }
     }
 

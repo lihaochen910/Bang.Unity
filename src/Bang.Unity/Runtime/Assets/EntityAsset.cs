@@ -12,11 +12,11 @@ namespace Bang.Unity {
 	[CreateAssetMenu(menuName = "Bang/EntityAsset")]
 	public class EntityAsset : ScriptableObject, ISerializationCallbackReceiver {
 
-		///<summary>Entity category</summary>
-		public string Category;
+		// ///<summary>Entity category</summary>
+		// public string Category;
 
-		///<summary>Entity Comments</summary>
-		public string Comments;
+		// ///<summary>Entity Comments</summary>
+		// public string Comments;
 		
 		// the json EntityInstance
 		[SerializeField]

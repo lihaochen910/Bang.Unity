@@ -118,7 +118,6 @@ public abstract class Scene : IDisposable
 
         if ( World != null ) {
             World.Update();
-            World.LateUpdate();
         }
     }
 

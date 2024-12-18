@@ -64,6 +64,33 @@ public static class ReflectionHelper {
 		return types;
 	}
 
+	private static readonly CacheDictionary< Type, IEnumerable< Type > > _cachedTypesWithAttributes = new ( 12 );
+	public static IEnumerable<Type> GetAllTypesWithAttributeDefined<T>() => GetAllTypesWithAttributeDefined(typeof(T));
+
+	public static IEnumerable<Type> GetAllTypesWithAttributeDefined(Type t)
+	{
+		if (_cachedTypesWithAttributes.TryGetValue(t, out var result))
+		{
+			return result;
+		}
+
+		result = SafeGetAllTypesInAllAssemblies().Where(p => Attribute.IsDefined(p, t));
+		_cachedTypesWithAttributes[t] = result;
+
+		return result;
+	}
+
+	public static IEnumerable<Type> GetAllTypesWithAttributeDefinedOfType<T>(Type ofType)
+	{
+		return GetAllTypesWithAttributeDefinedOfType(typeof(T), ofType);
+	}
+	
+	public static IEnumerable<Type> GetAllTypesWithAttributeDefinedOfType(Type attributeType, Type ofType)
+	{
+		return SafeGetAllTypesInAllAssemblies()
+			.Where(p => Attribute.IsDefined(p, attributeType) && ofType.IsAssignableFrom(p));
+	}
+
 	public static List<Type> SafeGetAllTypesInAllAssemblies()
 	{
 		if (_allTypesInAllAssemblies is not null)

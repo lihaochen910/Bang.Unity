@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Runtime.CompilerServices;
 using Bang.Entities;
+using Bang.Unity.Messages;
 using Bang.Unity.Serialization;
 using UnityEngine;
 using UnityEngine.Serialization;
@@ -37,9 +38,6 @@ namespace Bang.Unity {
 		
 		private EntityInstance _boundEntityInstance = new ();
 		
-		[Tooltip("If enabled, bound graph prefab overrides in instances will not be possible")]
-		public bool LockBoundEntityPrefabOverrides = true;
-
 		[NonSerialized]
 		public int EntityId;
 
@@ -75,18 +73,31 @@ namespace Bang.Unity {
 
 		private void Awake() {
 			// var entity = EntityConversion.Convert( gameObject, _options );
-			if ( _entityAsset != null ) {
-				_entity = _entityAsset.CreateInstance( Game.ActiveScene?.World );
+			if ( _entityAsset != null && Game.ActiveScene?.World != null ) {
+				_entity = _entityAsset.CreateInstance( Game.ActiveScene.World );
 				EntityId = _entity.EntityId;
 				World = _entity.World;
+#if !UNITY_EDITOR
+				// Debug.Log( $"create entity_{EntityId} from BangEntity::_entityAsset." );
+#endif
 			}
 			else {
 				JSONSerializer.TryDeserializeOverwrite< EntityInstance >( _boundEntityInstance, _boundEntitySerialization, _boundEntityObjectReferences );
 				if ( _boundEntityInstance != null && Game.ActiveScene?.World != null ) {
-					_entity = Game.ActiveScene?.World.AddEntity( _boundEntityInstance.Components.ToArray() );
-					EntityId = _entity.EntityId;
-					World = _entity.World;
+					_entity = Game.ActiveScene.World.AddEntity( _boundEntityInstance.Components.ToArray() );
+					if ( _entity != null ) {
+						EntityId = _entity.EntityId;
+						World = _entity.World;
+					}
+#if !UNITY_EDITOR
+					// Debug.Log( $"create bound entity_{EntityId} from BangEntity::_boundEntityInstance." );
+#endif
 				}
+#if !UNITY_EDITOR
+				else {
+					Debug.LogError( $"failed deserailize EntityInstance: _boundEntityInstance {_boundEntityInstance} GWorld {Game.ActiveScene?.World} GActiveScene {Game.ActiveScene}" );
+				}
+#endif
 			}
 
 			if ( _entity != null ) {
@@ -101,34 +112,40 @@ namespace Bang.Unity {
 				Debug.LogError( $"cannot create entity for GameObject: {gameObject.name}, BangWorld is null." );
 				gameObject.SetActive( false );
 			}
-			
-			// Debug.Log( "BangEntity Awake()!" );
 		}
 
 		void OnEnable() {
 			if ( !IsEntityAlive() ) {
 				return;
 			}
-
+			
 			if ( UseDisabledComponent && _entity.HasGameObjectDisabled() ) {
 				_entity.RemoveGameObjectDisabled();
 			}
+			
+			_entity.Activate();
 		}
 
 		void OnDisable() {
 			if ( !IsEntityAlive() ) {
 				return;
 			}
-
+			
 			if ( UseDisabledComponent && !_entity.HasGameObjectDisabled() ) {
 				_entity.SetGameObjectDisabled();
 			}
+			
+			_entity.Deactivate();
 		}
 
 		void OnDestroy() {
 			if ( IsEntityAlive() ) {
 				_entity.RemoveGameObjectReference();
+				if ( _entity.HasGameObjectDestroyListener() ) {
+					_entity.SendMessage( new GameObjectDestroyedMessage( gameObject ) );
+				}
 				_entity.Destroy();
+				_entity = null;
 			}
 		}
 
@@ -152,7 +169,9 @@ namespace Bang.Unity {
 				_entity.AddComponent( newComponent, newComponent.GetType() );
 			}
 
+#if UNITY_EDITOR
 			_boundEntityAssetInstance = asset;
+#endif
 		}
 		
 		///----------------------------------------------------------------------------------------------
@@ -172,21 +191,36 @@ namespace Bang.Unity {
                 if ( UnityEditor.PrefabUtility.IsPartOfPrefabInstance(this) ) {
                     var boundProp = new UnityEditor.SerializedObject(this).FindProperty(nameof(_boundEntitySerialization));
                     if ( !boundProp.prefabOverride && _boundEntitySerialization != serializedEntityAsset.GetSerializedJsonData() ) {
-                        if ( LockBoundEntityPrefabOverrides ) {
-                            Debug.LogWarning("The Bound Graph is Prefab Locked!\nChanges you make are not saved!\nUnlock the Prefab Instance, or Edit the Prefab Asset.");
-                            return;
-                        }
-						else {
-							Debug.LogWarning("Prefab Bound Graph just got overridden!");
-                        }
+                        // if ( LockBoundEntityPrefabOverrides ) {
+                        //     Debug.LogWarning("The Bound Entity is Prefab Locked!\nChanges you make are not saved!\nUnlock the Prefab Instance, or Edit the Prefab Asset.");
+                        //     return;
+                        // }
+						// else {
+						// 	Debug.LogWarning("Prefab Bound Graph just got overridden!");
+                        // }
                     }
 				}
+
+				if ( serializedEntityAsset != null &&
+					 serializedEntityAsset.GetSerializedJsonData() != null ) {
        
-                // ParadoxNotion.Design.UndoUtility.RecordObject(this, ParadoxNotion.Design.UndoUtility.GetLastOperationNameOr("Bound Graph Change"));
-                _boundEntityInstance = serializedEntityAsset.GetEntityInstance();
-                _boundEntitySerialization = serializedEntityAsset.GetSerializedJsonData();
-                _boundEntityObjectReferences = serializedEntityAsset.GetSerializedReferencesData();
-                // ParadoxNotion.Design.UndoUtility.SetDirty(this);
+					// ParadoxNotion.Design.UndoUtility.RecordObject(this, ParadoxNotion.Design.UndoUtility.GetLastOperationNameOr("Bound Graph Change"));
+					_boundEntityInstance = serializedEntityAsset.GetEntityInstance();
+					_boundEntitySerialization = serializedEntityAsset.GetSerializedJsonData();
+					_boundEntityObjectReferences = serializedEntityAsset.GetSerializedReferencesData();
+					// ParadoxNotion.Design.UndoUtility.SetDirty(this);
+
+					if ( string.IsNullOrEmpty( _boundEntitySerialization ) ) {
+						Debug.LogError( $"Bound Entity Serialization is empty for {gameObject.name}" );
+					}
+
+					// 确保修改被应用到Prefab实例
+					UnityEditor.PrefabUtility.RecordPrefabInstancePropertyModifications( this );
+				}
+				else {
+					Debug.LogError( $"Bound Entity Asset is null for {gameObject.name}" );
+				}
+				
             }
         }
 

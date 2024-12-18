@@ -29,7 +29,7 @@ namespace Bang.Unity {
 		{
 			foreach (Entity e in context.Entities)
 			{
-				if (e.TryGetStateMachine() is IStateMachineComponent routine)
+				if (e.TryGetStateMachine() is {} routine)
 				{
 					// float deltaTime = e.HasUnscaledDeltaTime() ? 
 					// 	Game.UnscaledDeltaTime : Game.DeltaTime;

@@ -6,7 +6,11 @@ using Gilzoide.EasyProjectSettings;
 
 namespace Bang.Unity {
 
-	[ProjectSettings("Assets/BangApp", SettingsPath = "Project/BangApp", Label = "BangApp Settings")]
+#if UNITY_EDITOR
+	[ProjectSettings("Assets/Resources/BangApp", SettingsPath = "Project/BangApp", Label = "BangApp Settings")]
+#else
+	[ProjectSettings("Assets/Resources/BangApp", SettingsPath = "Project/BangApp", Label = "BangApp Settings")]
+#endif
 	public class BangAppSettings : ScriptableObject {
 		
 		// private const string SettingsPath = "ProjectSettings/BangAppSettings.json";
@@ -54,16 +58,16 @@ namespace Bang.Unity {
 		// 	File.WriteAllText(SettingsPath, JsonUtility.ToJson(_instance));
 		// }
 
-		public ImmutableArray<(Type system, bool isActive)> FetchAllSystems()
-		{
-			var systems = ImmutableArray.CreateBuilder<(Type, bool)>();
+		public ImmutableArray< (Type system, bool isActive) > FetchAllSystems() {
+			
+			var systems = ImmutableArray.CreateBuilder< (Type, bool) >();
 
 			// First, let's add our own systems - easy!
 			// systems.AddRange(_systems);
 
 			// Now, let's fetch each of our features...
 			if ( MainFeatures != null ) {
-				systems.AddRange(MainFeatures.FetchAllSystems(enabled: true));
+				systems.AddRange( MainFeatures.FetchAllSystems( enabled: true ) );
 			}
 
 			return systems.ToImmutable();

@@ -2,11 +2,16 @@
     "name": "Bang.Unity.Editor",
     "rootNamespace": "",
     "references": [
+        "GUID:8a0ac5a9bde7d4a2db6a681ed88a8635",
         "GUID:ce84cd91c49a5480ca2a63642cddf5e7",
         "GUID:9ec603979022f430b95a82d68e3a55c5",
-        "GUID:539e0f196b65f40a78c10b4aa7a33503"
+        "GUID:539e0f196b65f40a78c10b4aa7a33503",
+        "GUID:fa216a02d195f46dfac1c6346fe5a4ee",
+        "GUID:9edf6d04eabfd482385646eaba23fdfc"
     ],
-    "includePlatforms": [],
+    "includePlatforms": [
+        "Editor"
+    ],
     "excludePlatforms": [],
     "allowUnsafeCode": true,
     "overrideReferences": false,

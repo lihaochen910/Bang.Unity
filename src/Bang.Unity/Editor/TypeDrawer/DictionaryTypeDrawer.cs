@@ -34,10 +34,13 @@ public class DictionaryTypeDrawer : ITypeDrawer
 
             var keyTypeName = keyType.ToCompilableString().TypeName();
             var valueTypeName = valueType.ToCompilableString().TypeName();
-            if (EntityDrawer.MiniButton($"new <{keyTypeName}, {valueTypeName}>"))
-                if (EntityDrawer.CreateDefault(keyType, out var defaultKey))
-                    if (EntityDrawer.CreateDefault(valueType, out var defaultValue))
-                        dictionary[defaultKey] = defaultValue;
+            if ( EntityDrawer.MiniButton( $"new <{keyTypeName}, {valueTypeName}>" ) ) {
+                if ( EntityDrawer.CreateDefault( keyType, out var defaultKey ) ) {
+                    if ( EntityDrawer.CreateDefault( valueType, out var defaultValue ) ) {
+                        dictionary[ defaultKey ] = defaultValue;
+                    }
+                }
+            }
         }
         EditorGUILayout.EndHorizontal();
 
@@ -73,7 +76,11 @@ public class DictionaryTypeDrawer : ITypeDrawer
 
                     EntityDrawer.DrawObjectMember(valueType, "value", dictionary[key],
                         target, (_, newValue) => dictionary[key] = newValue);
-
+                    
+                    if ( EntityDrawer.MiniButtonLeft( $"delete <{key}>" ) ) {
+                        dictionary.Remove( key );
+                    }
+                    
                     EditorGUILayout.Space();
                 }
             }
